@@ -1,0 +1,72 @@
+name: mnytc
+description: Aplikasi MNYTC berbasis WebView untuk Android, iOS, Windows, dan macOS.
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  flutter_inappwebview: ^6.1.5
+  dio: ^5.7.0
+  path: ^1.9.1
+  path_provider: ^2.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.3
+  flutter_native_splash: ^2.4.4
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/icons/Monytccc.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+
+  image_path: assets/icons/Monytccc.png
+
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: assets/icons/Monytccc.png
+
+  remove_alpha_ios: true
+  min_sdk_android: 21
+
+  windows:
+    generate: true
+    image_path: assets/icons/Monytccc.png
+    icon_size: 256
+
+  macos:
+    generate: true
+    image_path: assets/icons/Monytccc.png
+
+flutter_native_splash:
+  color: "#000000"
+  image: assets/icons/Monytccc.png
+
+  android: true
+  ios: true
+  web: false
+
+  android_gravity: center
+  ios_content_mode: center
+
+  fullscreen: true
+
+  android_12:
+    color: "#000000"
+    image: assets/icons/Monytccc.png
+    icon_background_color: "#000000"
