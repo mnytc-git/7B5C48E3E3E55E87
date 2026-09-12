@@ -1,0 +1,181 @@
+name: MNYTC Multi-Platform Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: Create a GitHub Release after successful builds
+        required: true
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mnytc-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_CHANNEL: stable
+
+jobs:
+  validate:
+    name: Validate Flutter project
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+      - name: Verify required files
+        shell: bash
+        run: |
+          test -f pubspec.yaml
+          test -f lib/main.dart
+          test -f assets/icons/Monytccc.png
+          test -d android
+          test -d ios
+          test -d windows
+          test -d macos
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    name: Android APK and AAB
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+      - run: flutter pub get
+      - run: dart run flutter_launcher_icons
+      - run: dart run flutter_native_splash:create
+      - name: Configure production signing when secrets exist
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 --decode > android/app/mnytc-release.jks
+          cat > android/key.properties <<PROPS
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=mnytc-release.jks
+          PROPS
+      - name: Build release APK
+        run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+      - name: Build release AAB
+        run: flutter build appbundle --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+      - name: Collect Android files
+        shell: bash
+        run: |
+          mkdir -p dist/android
+          cp build/app/outputs/flutter-apk/app-release.apk dist/android/MNYTC-${{ github.run_number }}.apk
+          cp build/app/outputs/bundle/release/app-release.aab dist/android/MNYTC-${{ github.run_number }}.aab
+          sha256sum dist/android/* > dist/android/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MNYTC-Android-${{ github.run_number }}
+          path: dist/android
+          if-no-files-found: error
+          retention-days: 30
+
+  windows:
+    name: Windows portable app
+    needs: validate
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - run: dart run flutter_launcher_icons
+      - run: flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+      - name: Package Windows bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/windows | Out-Null
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dist/windows/MNYTC-Windows-${{ github.run_number }}.zip
+          (Get-FileHash dist/windows/*.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" }) | Set-Content dist/windows/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MNYTC-Windows-${{ github.run_number }}
+          path: dist/windows
+          if-no-files-found: error
+          retention-days: 30
+
+  apple:
+    name: macOS and iOS validation builds
+    needs: validate
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+      - run: flutter config --enable-macos-desktop
+      - run: flutter pub get
+      - run: dart run flutter_launcher_icons
+      - run: dart run flutter_native_splash:create
+      - name: Build unsigned macOS app
+        run: flutter build macos --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+      - name: Package Apple validation files
+        shell: bash
+        run: |
+          mkdir -p dist/apple
+          ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/*.app dist/apple/MNYTC-macOS-unsigned-${{ github.run_number }}.zip
+          ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app dist/apple/MNYTC-iOS-unsigned-${{ github.run_number }}.zip
+          shasum -a 256 dist/apple/*.zip > dist/apple/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MNYTC-Apple-unsigned-${{ github.run_number }}
+          path: dist/apple
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    needs: [android, windows, apple]
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build-{0}', github.run_number) }}
+          name: MNYTC Build ${{ github.run_number }}
+          generate_release_notes: true
+          files: release-assets/**/*
