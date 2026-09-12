@@ -103,11 +103,10 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Install Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: Install Flutter
         uses: subosito/flutter-action@v2
@@ -121,10 +120,37 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate icons
-        run: dart run flutter_launcher_icons
+      - name: Restore Android scaffold when incomplete
+        shell: bash
+        run: |
+          if [ ! -f android/gradlew ] || [ ! -f android/app/build.gradle.kts ]; then
+            cp android/app/src/main/AndroidManifest.xml /tmp/AndroidManifest.xml
+            if [ -f android/app/src/main/kotlin/eu/mnytc/app/MainActivity.kt ]; then
+              cp android/app/src/main/kotlin/eu/mnytc/app/MainActivity.kt /tmp/MainActivity.kt
+            fi
+            flutter create --platforms=android --org eu.mnytc --project-name mnytc .
+            cp /tmp/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+            if [ -f /tmp/MainActivity.kt ]; then
+              mkdir -p android/app/src/main/kotlin/eu/mnytc/app
+              cp /tmp/MainActivity.kt android/app/src/main/kotlin/eu/mnytc/app/MainActivity.kt
+            fi
+          fi
 
-      - name: Generate splash screen
+      - name: Generate Android icons only
+        shell: bash
+        run: |
+          cat > launcher_icons_android.yaml <<'YAML'
+          flutter_launcher_icons:
+            android: true
+            ios: false
+            image_path: assets/icons/Monytccc.png
+            adaptive_icon_background: "#000000"
+            adaptive_icon_foreground: assets/icons/Monytccc.png
+            min_sdk_android: 21
+          YAML
+          dart run flutter_launcher_icons -f launcher_icons_android.yaml
+
+      - name: Generate Android splash screen
         run: dart run flutter_native_splash:create
 
       - name: Build APK
@@ -173,8 +199,27 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate icons
-        run: dart run flutter_launcher_icons
+      - name: Restore Windows scaffold when incomplete
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "windows/CMakeLists.txt")) {
+            flutter create --platforms=windows --org eu.mnytc --project-name mnytc .
+          }
+
+      - name: Generate Windows icon only
+        shell: pwsh
+        run: |
+          @"
+          flutter_launcher_icons:
+            android: false
+            ios: false
+            image_path: assets/icons/Monytccc.png
+            windows:
+              generate: true
+              image_path: assets/icons/Monytccc.png
+              icon_size: 256
+          "@ | Set-Content launcher_icons_windows.yaml
+          dart run flutter_launcher_icons -f launcher_icons_windows.yaml
 
       - name: Build Windows application
         run: flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
@@ -223,10 +268,32 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate icons
-        run: dart run flutter_launcher_icons
+      - name: Restore Apple scaffolds when incomplete
+        shell: bash
+        run: |
+          if [ ! -d ios/Runner/Assets.xcassets/AppIcon.appiconset ] || [ ! -f ios/Runner/Info.plist ]; then
+            flutter create --platforms=ios --org eu.mnytc --project-name mnytc .
+          fi
+          if [ ! -d macos/Runner/Assets.xcassets/AppIcon.appiconset ] || [ ! -f macos/Runner/Info.plist ]; then
+            flutter create --platforms=macos --org eu.mnytc --project-name mnytc .
+          fi
 
-      - name: Generate splash screen
+      - name: Generate Apple icons only
+        shell: bash
+        run: |
+          cat > launcher_icons_apple.yaml <<'YAML'
+          flutter_launcher_icons:
+            android: false
+            ios: true
+            image_path: assets/icons/Monytccc.png
+            remove_alpha_ios: true
+            macos:
+              generate: true
+              image_path: assets/icons/Monytccc.png
+          YAML
+          dart run flutter_launcher_icons -f launcher_icons_apple.yaml
+
+      - name: Generate Apple splash screen
         run: dart run flutter_native_splash:create
 
       - name: Build macOS application
