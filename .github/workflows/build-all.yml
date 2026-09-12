@@ -4,148 +4,78 @@ on:
   workflow_dispatch:
     inputs:
       create_release:
-        description: "Create a GitHub Release after successful builds"
+        description: Create a GitHub Release
         required: true
         type: boolean
         default: false
-
   push:
     branches:
       - main
     tags:
-      - "v*.*.*"
-
+      - 'v*.*.*'
   pull_request:
     branches:
- *    - main
+      - main
 
 permissions:
-  content*: write
+  contents: write
 
 concurrency:
-  group: mny*c-${{ github.workflow }}-${{ githu*.ref }}
-  cancel-in-progress: true*
+  group: mnytc-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FLUTTER_CHANNEL: stable
-  *PP_NAME: MNYTC
+  APP_NAME: MNYTC
 
 jobs:
   validate:
-*   name: Validate Flutter project
-*   runs-on: ubuntu-latest
-    time*ut-minutes: 20
-
+    name: Validate Flutter project
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      -*name: Checkout repository
-        *ses: actions/checkout@v5
+      - name: Checkout repository
+        uses: actions/checkout@v5
 
-      - *ame: Install Flutter
-        uses:*subosito/flutter-action@v2
-       *with:
-          channel: ${{ env.F*UTTER_CHANNEL }}
-          cache: *rue
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
 
-      - name: Display environ*ent information
-        shell: bas*
-        run: |
-          echo "Re*ository: $GITHUB_REPOSITORY"
-     *    echo "Branch or tag: $GITHUB_R*F"
-          echo "Commit: $GITHUB*SHA"
-          echo "Run number: $*ITHUB_RUN_NUMBER"
-
-          flutter --version
-          dart --version
-
-      - name: Display repository files
-        shell: bash
-        run: |
-          echo "Root directory:"
-          find . -maxdepth 4 -type f \
-            -not -path "./.git/*" \
-            -not -path "./.dart_tool/*" \
-            -not -path "./build/*" \
-            | sort
-
-      - name: Verify minimum required files
+      - name: Verify required files
         shell: bash
         run: |
           required_files=(
-            "pubspec.yaml"
-            "lib/main.dart"
-            "lib/app.dart"
-            "lib/config/app_config.dart"
-            "lib/screens/webview_screen.dart"
-            "lib/services/download_service.dart"
-            "lib/widgets/loading_view.dart"
-            "lib/widgets/offline_view.dart"
-            "assets/icons/Monytccc.png"
-            "android/app/src/main/AndroidManifest.xml"
+            pubspec.yaml
+            lib/main.dart
+            lib/app.dart
+            lib/config/app_config.dart
+            lib/screens/webview_screen.dart
+            lib/services/download_service.dart
+            lib/widgets/loading_view.dart
+            lib/widgets/offline_view.dart
+            assets/icons/Monytccc.png
+            android/app/src/main/AndroidManifest.xml
           )
-
-          missing_files=0
-
-          for required_file in "${required_files[@]}"; do
-            if [ -f "$required_file" ]; then
-              echo "[FOUND] $required_file"
+          failed=0
+          for item in "${required_files[@]}"; do
+            if [ -f "$item" ]; then
+              echo "FOUND: $item"
             else
-              echo "[MISSING] $required_file"
-              missing_files=1
+              echo "MISSING: $item"
+              failed=1
             fi
           done
+          exit "$failed"
 
-          if [ "$missing_files" -ne 0 ]; then
-            echo "One or more required files are missing."
-            exit 1
-          fi
-
-      - name: Verify minimum required directories
-        shell: bash
-        run: |
-          required_directories=(
-            "android"
-            "ios"
-            "windows"
-            "macos"
-            "assets"
-            "lib"
-          )
-
-          missing_directories=0
-
-          for required_directory in "${required_directories[@]}"; do
-            if [ -d "$required_directory" ]; then
-              echo "[FOUND] $required_directory"
-            else
-              echo "[MISSING] $required_directory"
-              missing_directories=1
-            fi
-          done
-
-          if [ "$missing_directories" -ne 0 ]; then
-            echo "One or more required directories are missing."
-            exit 1
-          fi
-
-      - name: Verify icon file
-        shell: bash
-        run: |
-          file assets/icons/Monytccc.png
-          test -s assets/icons/Monytccc.png
-
-      - name: Clean Flutter project
+      - name: Clean project
         run: flutter clean
 
-      - name: Install Flutter dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Verify dependency resolution
-        shell: bash
-        run: |
-          test -f pubspec.lock
-          test -d .dart_tool
-          test -f .dart_tool/package_config.json
-
-      - name: Format Dart source code
+      - name: Format Dart code
         shell: bash
         run: |
           if [ -d test ]; then
@@ -154,39 +84,29 @@ jobs:
             dart format lib
           fi
 
-      - name: Analyze Flutter source
+      - name: Analyze project
         continue-on-error: true
         run: flutter analyze
 
-      - name: Run Flutter tests when available
+      - name: Run tests when present
         if: ${{ hashFiles('test/**/*.dart') != '' }}
         continue-on-error: true
         run: flutter test
 
-      - name: Validation summary
-        shell: bash
-        run: |
-          echo "MNYTC project structure is valid."
-          echo "Dependencies were installed successfully."
-          echo "Build jobs can now continue."
-
   android:
     name: Build Android APK and AAB
-    needs:
-      - validate
-
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Install Java 17
+      - name: Install Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
           cache: gradle
 
       - name: Install Flutter
@@ -195,103 +115,45 @@ jobs:
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
 
-      - name: Display Android build environment
-        shell: bash
-        run: |
-          flutter --version
-          dart --version
-          java -version
-          flutter doctor -v
-
-      - name: Clean Flutter project
+      - name: Clean project
         run: flutter clean
 
-      - name: Install Flutter dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate application icons
+      - name: Generate icons
         run: dart run flutter_launcher_icons
 
-      - name: Generate native splash screen
+      - name: Generate splash screen
         run: dart run flutter_native_splash:create
 
-      - name: Verify generated Android project
+      - name: Build APK
+        run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+
+      - name: Build AAB
+        run: flutter build appbundle --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+
+      - name: Collect Android artifacts
         shell: bash
         run: |
-          test -f android/app/src/main/AndroidManifest.xml
-          test -d android/app/src/main/res
-          test -f android/gradlew
+          mkdir -p dist/android
+          cp build/app/outputs/flutter-apk/app-release.apk dist/android/MNYTC-${{ github.run_number }}.apk
+          cp build/app/outputs/bundle/release/app-release.aab dist/android/MNYTC-${{ github.run_number }}.aab
+          sha256sum dist/android/* > dist/android/SHA256SUMS.txt
 
-          chmod +x android/gradlew
-
-      - name: Build Android APK
-        shell: bash
-        run: |
-          flutter build apk \
-            --release \
-            --build-name="1.0.${{ github.run_number }}" \
-            --build-number="${{ github.run_number }}" \
-            --verbose
-
-      - name: Build Android App Bundle
-        shell: bash
-        run: |
-          flutter build appbundle \
-            --release \
-            --build-name="1.0.${{ github.run_number }}" \
-            --build-number="${{ github.run_number }}"
-
-      - name: Collect Android build results
-        shell: bash
-        run: |
-          apk_file="build/app/outputs/flutter-apk/app-release.apk"
-          aab_file="build/app/outputs/bundle/release/app-release.aab"
-          output_directory="dist/android"
-
-          if [ ! -f "$apk_file" ]; then
-            echo "APK was not generated at $apk_file"
-            exit 1
-          fi
-
-          if [ ! -f "$aab_file" ]; then
-            echo "AAB was not generated at $aab_file"
-            exit 1
-          fi
-
-          mkdir -p "$output_directory"
-
-          cp \
-            "$apk_file" \
-            "$output_directory/MNYTC-${{ github.run_number }}.apk"
-
-          cp \
-            "$aab_file" \
-            "$output_directory/MNYTC-${{ github.run_number }}.aab"
-
-          sha256sum \
-            "$output_directory/MNYTC-${{ github.run_number }}.apk" \
-            "$output_directory/MNYTC-${{ github.run_number }}.aab" \
-            > "$output_directory/SHA256SUMS.txt"
-
-          ls -lah "$output_directory"
-
-      - name: Upload Android APK and AAB
+      - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
           name: MNYTC-Android-${{ github.run_number }}
           path: dist/android
           if-no-files-found: error
           retention-days: 30
-          compression-level: 6
 
   windows:
     name: Build Windows application
-    needs:
-      - validate
-
+    needs: validate
     runs-on: windows-latest
     timeout-minutes: 50
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -305,121 +167,43 @@ jobs:
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
 
-      - name: Display Windows build environment
-        shell: pwsh
-        run: |
-          flutter --version
-          dart --version
-          flutter doctor -v
-
-      - name: Clean Flutter project
+      - name: Clean project
         run: flutter clean
 
-      - name: Install Flutter dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate Windows application icon
+      - name: Generate icons
         run: dart run flutter_launcher_icons
 
-      - name: Build Windows release application
+      - name: Build Windows application
+        run: flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+
+      - name: Package Windows application
         shell: pwsh
         run: |
-          flutter build windows `
-            --release `
-            --build-name="1.0.${{ github.run_number }}" `
-            --build-number="${{ github.run_number }}" `
-            --verbose
-
-      - name: Locate Windows release directory
-        id: windows-release
-        shell: pwsh
-        run: |
-          $possibleDirectories = @(
-            "build/windows/x64/runner/Release",
-            "build/windows/runner/Release"
-          )
-
-          $releaseDirectory = $null
-
-          foreach ($possibleDirectory in $possibleDirectories) {
-            if (Test-Path $possibleDirectory) {
-              $releaseDirectory = $possibleDirectory
-              break
-            }
+          $releaseDirectory = "build/windows/x64/runner/Release"
+          if (-not (Test-Path $releaseDirectory)) {
+            throw "Windows release directory not found: $releaseDirectory"
           }
+          New-Item -ItemType Directory -Force -Path "dist/windows" | Out-Null
+          Compress-Archive -Path "$releaseDirectory/*" -DestinationPath "dist/windows/MNYTC-Windows-${{ github.run_number }}.zip" -Force
+          $hash = Get-FileHash "dist/windows/MNYTC-Windows-${{ github.run_number }}.zip" -Algorithm SHA256
+          "$($hash.Hash)  MNYTC-Windows-${{ github.run_number }}.zip" | Set-Content "dist/windows/SHA256SUMS.txt"
 
-          if (:IsNullOrWhiteSpace($releaseDirectory)) {
-            Write-Host "Windows release directory was not found."
-
-            Get-ChildItem `
-              -Path build/windows `
-              -Recurse `
-              -ErrorAction SilentlyContinue |
-            Select-Object FullName
-
-            throw "Windows build output could not be located."
-          }
-
-          Write-Host "Windows release directory: $releaseDirectory"
-
-          "release_directory=$releaseDirectory" |
-          Out-File `
-            -FilePath $env:GITHUB_OUTPUT `
-            -Encoding utf8 `
-            -Append
-
-      - name: Package complete Windows application
-        shell: pwsh
-        run: |
-          $releaseDirectory = "${{ steps.windows-release.outputs.release_directory }}"
-          $outputDirectory = "dist/windows"
-          $archiveName = "MNYTC-Windows-${{ github.run_number }}.zip"
-          $archivePath = Join-Path $outputDirectory $archiveName
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            -Path $outputDirectory |
-          Out-Null
-
-          Compress-Archive `
-            -Path "$releaseDirectory/*" `
-            -DestinationPath $archivePath `
-            -CompressionLevel Optimal `
-            -Force
-
-          $fileHash = Get-FileHash `
-            -Path $archivePath `
-            -Algorithm SHA256
-
-          "$($fileHash.Hash)  $archiveName" |
-          Set-Content `
-            -Path "$outputDirectory/SHA256SUMS.txt" `
-            -Encoding utf8
-
-          Get-ChildItem $outputDirectory |
-          Format-Table `
-            Name,
-            Length,
-            LastWriteTime
-
-      - name: Upload Windows application
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: MNYTC-Windows-${{ github.run_number }}
           path: dist/windows
           if-no-files-found: error
           retention-days: 30
-          compression-level: 0
 
   apple:
     name: Build macOS and unsigned iOS
-    needs:
-      - validate
-
+    needs: validate
     runs-on: macos-latest
     timeout-minutes: 70
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -433,136 +217,42 @@ jobs:
       - name: Enable macOS desktop
         run: flutter config --enable-macos-desktop
 
-      - name: Display Apple build environment
-        shell: bash
-        run: |
-          flutter --version
-          dart --version
-          xcodebuild -version
-          flutter doctor -v
-
-      - name: Clean Flutter project
+      - name: Clean project
         run: flutter clean
 
-      - name: Install Flutter dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate Apple application icons
+      - name: Generate icons
         run: dart run flutter_launcher_icons
 
-      - name: Generate native splash screen
+      - name: Generate splash screen
         run: dart run flutter_native_splash:create
 
-      - name: Install iOS CocoaPods
-        shell: bash
-        run: |
-          cd ios
-          pod install --repo-update
-          cd ..
-
-      - name: Install macOS CocoaPods
-        shell: bash
-        run: |
-          cd macos
-          pod install --repo-update
-          cd ..
-
-      - name: Build macOS release application
-        shell: bash
-        run: |
-          flutter build macos \
-            --release \
-            --build-name="1.0.${{ github.run_number }}" \
-            --build-number="${{ github.run_number }}" \
-            --verbose
+      - name: Build macOS application
+        run: flutter build macos --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
 
       - name: Build unsigned iOS application
+        run: flutter build ios --release --no-codesign --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+
+      - name: Package Apple applications
         shell: bash
         run: |
-          flutter build ios \
-            --release \
-            --no-codesign \
-            --build-name="1.0.${{ github.run_number }}" \
-            --build-number="${{ github.run_number }}" \
-            --verbose
+          mkdir -p dist/apple
+          macos_app="$(find build/macos/Build/Products/Release -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$macos_app"
+          test -d build/ios/iphoneos/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent "$macos_app" dist/apple/MNYTC-macOS-unsigned-${{ github.run_number }}.zip
+          ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app dist/apple/MNYTC-iOS-unsigned-${{ github.run_number }}.zip
+          shasum -a 256 dist/apple/*.zip > dist/apple/SHA256SUMS.txt
 
-      - name: Locate and package Apple applications
-        shell: bash
-        run: |
-          output_directory="dist/apple"
-
-          mkdir -p "$output_directory"
-
-          macos_application="$(find \
-            build/macos/Build/Products/Release \
-            -maxdepth 1 \
-            -type d \
-            -name '*.app' \
-            -print \
-            -quit)"
-
-          ios_application="build/ios/iphoneos/Runner.app"
-
-          if [ -z "$macos_application" ]; then
-            echo "No macOS .app bundle was found."
-
-            find \
-              build/macos \
-              -maxdepth 6 \
-              -type d \
-              -name '*.app' \
-              -print || true
-
-            exit 1
-          fi
-
-          if [ ! -d "$ios_application" ]; then
-            echo "Unsigned iOS Runner.app was not found."
-
-            find \
-              build/ios \
-              -maxdepth 5 \
-              -type d \
-              -name '*.app' \
-              -print || true
-
-            exit 1
-          fi
-
-          echo "macOS application: $macos_application"
-          echo "iOS application: $ios_application"
-
-          ditto \
-            -c \
-            -k \
-            --sequesterRsrc \
-            --keepParent \
-            "$macos_application" \
-            "$output_directory/MNYTC-macOS-unsigned-${{ github.run_number }}.zip"
-
-          ditto \
-            -c \
-            -k \
-            --sequesterRsrc \
-            --keepParent \
-            "$ios_application" \
-            "$output_directory/MNYTC-iOS-unsigned-${{ github.run_number }}.zip"
-
-          shasum \
-            -a 256 \
-            "$output_directory"/*.zip \
-            > "$output_directory/SHA256SUMS.txt"
-
-          ls -lah "$output_directory"
-
-      - name: Upload unsigned Apple applications
+      - name: Upload Apple artifacts
         uses: actions/upload-artifact@v4
         with:
           name: MNYTC-Apple-unsigned-${{ github.run_number }}
           path: dist/apple
           if-no-files-found: error
           retention-days: 30
-          compression-level: 0
 
   release:
     name: Publish GitHub Release
@@ -570,49 +260,29 @@ jobs:
       - android
       - windows
       - apple
-
-    if: >-
-      startsWith(github.ref, 'refs/tags/v') ||
-      (
-        github.event_name == 'workflow_dispatch' &&
-        inputs.create_release == true
-      )
-
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     steps:
-      - name: Download all build artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
 
-      - name: Display release assets
-        shell: bash
-        run: |
-          find release-assets \
-            -type f \
-            -print
-
-      - name: Create release from version tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish version-tag release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: MNYTC ${{ github.ref_name }}
           generate_release_notes: true
-          fail_on_unmatched_files: true
           files: release-assets/**/*
 
-      - name: Create manually requested release
-        if: >-
-          github.event_name == 'workflow_dispatch' &&
-          inputs.create_release == true &&
-          !startsWith(github.ref, 'refs/tags/v')
+      - name: Publish manually requested release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release == true && !startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: MNYTC Build ${{ github.run_number }}
           generate_release_notes: true
-          fail_on_unmatched_files: true
           files: release-assets/**/*
