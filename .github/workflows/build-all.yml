@@ -8,11 +8,16 @@ on:
         required: true
         type: boolean
         default: false
+
   push:
-    branches: [main]
-    tags: ['v*.*.*']
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -28,75 +33,137 @@ jobs:
   validate:
     name: Validate Flutter project
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
-      - name: Verify required files
+
+      - name: Show Flutter environment
+        run: |
+          flutter --version
+          dart --version
+          flutter doctor -v
+
+      - name: Verify required project files
         shell: bash
         run: |
           test -f pubspec.yaml
           test -f lib/main.dart
+          test -f lib/app.dart
+          test -f lib/config/app_config.dart
+          test -f lib/screens/webview_screen.dart
+          test -f lib/services/download_service.dart
+          test -f lib/widgets/loading_view.dart
+          test -f lib/widgets/offline_view.dart
           test -f assets/icons/Monytccc.png
+          test -f android/app/src/main/AndroidManifest.xml
+          test -f test/app_test.dart
           test -d android
           test -d ios
           test -d windows
           test -d macos
-      - run: flutter pub get
-      - run: dart format --output=none --set-exit-if-changed lib
-      - run: flutter analyze
-      - run: flutter test
+
+      - name: Clean Flutter project
+        run: flutter clean
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Format Dart source code
+        run: dart format lib test
+
+      - name: Analyze Flutter project
+        run: flutter analyze
+
+      - name: Run Flutter tests
+        run: flutter test
 
   android:
-    name: Android APK and AAB
-    needs: validate
+    name: Build Android APK and AAB
+    needs:
+      - validate
+
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
           cache: gradle
-      - uses: subosito/flutter-action@v2
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
-      - run: flutter pub get
-      - run: dart run flutter_launcher_icons
-      - run: dart run flutter_native_splash:create
-      - name: Configure production signing when secrets exist
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        shell: bash
-        env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+
+      - name: Show Flutter and Java versions
         run: |
-          echo "$KEYSTORE_B64" | base64 --decode > android/app/mnytc-release.jks
-          cat > android/key.properties <<PROPS
-          storePassword=$STORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=mnytc-release.jks
-          PROPS
+          flutter --version
+          java -version
+
+      - name: Clean Flutter project
+        run: flutter clean
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
+      - name: Generate native splash screen
+        run: dart run flutter_native_splash:create
+
       - name: Build release APK
-        run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
-      - name: Build release AAB
-        run: flutter build appbundle --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
-      - name: Collect Android files
+        run: |
+          flutter build apk \
+            --release \
+            --build-name=1.0.${{ github.run_number }} \
+            --build-number=${{ github.run_number }}
+
+      - name: Build release Android App Bundle
+        run: |
+          flutter build appbundle \
+            --release \
+            --build-name=1.0.${{ github.run_number }} \
+            --build-number=${{ github.run_number }}
+
+      - name: Collect Android build files
         shell: bash
         run: |
           mkdir -p dist/android
-          cp build/app/outputs/flutter-apk/app-release.apk dist/android/MNYTC-${{ github.run_number }}.apk
-          cp build/app/outputs/bundle/release/app-release.aab dist/android/MNYTC-${{ github.run_number }}.aab
-          sha256sum dist/android/* > dist/android/SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
+
+          test -f build/app/outputs/flutter-apk/app-release.apk
+          test -f build/app/outputs/bundle/release/app-release.aab
+
+          cp \
+            build/app/outputs/flutter-apk/app-release.apk \
+            dist/android/MNYTC-${{ github.run_number }}.apk
+
+          cp \
+            build/app/outputs/bundle/release/app-release.aab \
+            dist/android/MNYTC-${{ github.run_number }}.aab
+
+          sha256sum \
+            dist/android/MNYTC-${{ github.run_number }}.apk \
+            dist/android/MNYTC-${{ github.run_number }}.aab \
+            > dist/android/SHA256SUMS.txt
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: MNYTC-Android-${{ github.run_number }}
           path: dist/android
@@ -104,27 +171,76 @@ jobs:
           retention-days: 30
 
   windows:
-    name: Windows portable app
-    needs: validate
+    name: Build Windows application
+    needs:
+      - validate
+
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
-      - run: flutter config --enable-windows-desktop
-      - run: flutter pub get
-      - run: dart run flutter_launcher_icons
-      - run: flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
-      - name: Package Windows bundle
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Show Flutter environment
+        run: flutter doctor -v
+
+      - name: Clean Flutter project
+        run: flutter clean
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
+      - name: Build Windows release
+        run: >
+          flutter build windows
+          --release
+          --build-name=1.0.${{ github.run_number }}
+          --build-number=${{ github.run_number }}
+
+      - name: Package complete Windows application
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist/windows | Out-Null
-          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dist/windows/MNYTC-Windows-${{ github.run_number }}.zip
-          (Get-FileHash dist/windows/*.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" }) | Set-Content dist/windows/SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
+          $releaseDirectory = "build/windows/x64/runner/Release"
+          $outputDirectory = "dist/windows"
+          $outputArchive = "$outputDirectory/MNYTC-Windows-${{ github.run_number }}.zip"
+
+          if (-not (Test-Path $releaseDirectory)) {
+            throw "Windows release directory was not found: $releaseDirectory"
+          }
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path $outputDirectory |
+          Out-Null
+
+          Compress-Archive `
+            -Path "$releaseDirectory/*" `
+            -DestinationPath $outputArchive `
+            -Force
+
+          $hash = Get-FileHash `
+            -Path $outputArchive `
+            -Algorithm SHA256
+
+          "$($hash.Hash)  $($hash.Path | Split-Path -Leaf)" |
+          Set-Content "$outputDirectory/SHA256SUMS.txt"
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: MNYTC-Windows-${{ github.run_number }}
           path: dist/windows
@@ -132,32 +248,105 @@ jobs:
           retention-days: 30
 
   apple:
-    name: macOS and iOS validation builds
-    needs: validate
+    name: Build macOS and unsigned iOS
+    needs:
+      - validate
+
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
-      - run: flutter config --enable-macos-desktop
-      - run: flutter pub get
-      - run: dart run flutter_launcher_icons
-      - run: dart run flutter_native_splash:create
-      - name: Build unsigned macOS app
-        run: flutter build macos --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
-      - name: Build unsigned iOS app
-        run: flutter build ios --release --no-codesign --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
-      - name: Package Apple validation files
+
+      - name: Enable macOS desktop
+        run: flutter config --enable-macos-desktop
+
+      - name: Show Flutter and Xcode environment
+        run: |
+          flutter --version
+          flutter doctor -v
+          xcodebuild -version
+
+      - name: Clean Flutter project
+        run: flutter clean
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
+      - name: Generate native splash screen
+        run: dart run flutter_native_splash:create
+
+      - name: Build macOS release
+        run: |
+          flutter build macos \
+            --release \
+            --build-name=1.0.${{ github.run_number }} \
+            --build-number=${{ github.run_number }}
+
+      - name: Build unsigned iOS release
+        run: |
+          flutter build ios \
+            --release \
+            --no-codesign \
+            --build-name=1.0.${{ github.run_number }} \
+            --build-number=${{ github.run_number }}
+
+      - name: Package Apple validation builds
         shell: bash
         run: |
           mkdir -p dist/apple
-          ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/*.app dist/apple/MNYTC-macOS-unsigned-${{ github.run_number }}.zip
-          ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app dist/apple/MNYTC-iOS-unsigned-${{ github.run_number }}.zip
-          shasum -a 256 dist/apple/*.zip > dist/apple/SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
+
+          MACOS_APPLICATION="$(find \
+            build/macos/Build/Products/Release \
+            -maxdepth 1 \
+            -type d \
+            -name '*.app' \
+            -print \
+            -quit)"
+
+          if [ -z "$MACOS_APPLICATION" ]; then
+            echo "No macOS application bundle was found."
+            exit 1
+          fi
+
+          if [ ! -d build/ios/iphoneos/Runner.app ]; then
+            echo "The unsigned iOS Runner.app was not found."
+            exit 1
+          fi
+
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            "$MACOS_APPLICATION" \
+            dist/apple/MNYTC-macOS-unsigned-${{ github.run_number }}.zip
+
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            build/ios/iphoneos/Runner.app \
+            dist/apple/MNYTC-iOS-unsigned-${{ github.run_number }}.zip
+
+          shasum \
+            -a 256 \
+            dist/apple/*.zip \
+            > dist/apple/SHA256SUMS.txt
+
+      - name: Upload Apple artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: MNYTC-Apple-unsigned-${{ github.run_number }}
           path: dist/apple
@@ -166,16 +355,48 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [android, windows, apple]
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release) }}
+    needs:
+      - android
+      - windows
+      - apple
+
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.create_release == true
+      )
+
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
         with:
           path: release-assets
-      - uses: softprops/action-gh-release@v2
+
+      - name: Display release files
+        shell: bash
+        run: find release-assets -type f -print
+
+      - name: Publish tagged GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build-{0}', github.run_number) }}
+          tag_name: ${{ github.ref_name }}
+          name: MNYTC ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/**/*
+
+      - name: Publish manually requested GitHub Release
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.create_release == true &&
+          !startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
           name: MNYTC Build ${{ github.run_number }}
           generate_release_notes: true
           files: release-assets/**/*
