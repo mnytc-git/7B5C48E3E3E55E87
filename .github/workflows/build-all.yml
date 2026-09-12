@@ -26,7 +26,6 @@ concurrency:
 
 env:
   FLUTTER_CHANNEL: stable
-  APP_NAME: MNYTC
 
 jobs:
   validate:
@@ -56,7 +55,6 @@ jobs:
             lib/widgets/loading_view.dart
             lib/widgets/offline_view.dart
             assets/icons/Monytccc.png
-            android/app/src/main/AndroidManifest.xml
           )
           failed=0
           for item in "${required_files[@]}"; do
@@ -97,7 +95,7 @@ jobs:
     name: Build Android APK and AAB
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -123,34 +121,40 @@ jobs:
       - name: Restore Android scaffold when incomplete
         shell: bash
         run: |
-          if [ ! -f android/gradlew ] || [ ! -f android/app/build.gradle.kts ]; then
-            cp android/app/src/main/AndroidManifest.xml /tmp/AndroidManifest.xml
+          if [ ! -f android/gradlew ] || { [ ! -f android/app/build.gradle ] && [ ! -f android/app/build.gradle.kts ]; }; then
+            mkdir -p /tmp/mnytc-android
+            if [ -f android/app/src/main/AndroidManifest.xml ]; then
+              cp android/app/src/main/AndroidManifest.xml /tmp/mnytc-android/AndroidManifest.xml
+            fi
             if [ -f android/app/src/main/kotlin/eu/mnytc/app/MainActivity.kt ]; then
-              cp android/app/src/main/kotlin/eu/mnytc/app/MainActivity.kt /tmp/MainActivity.kt
+              cp android/app/src/main/kotlin/eu/mnytc/app/MainActivity.kt /tmp/mnytc-android/MainActivity.kt
             fi
             flutter create --platforms=android --org eu.mnytc --project-name mnytc .
-            cp /tmp/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
-            if [ -f /tmp/MainActivity.kt ]; then
+            if [ -f /tmp/mnytc-android/AndroidManifest.xml ]; then
+              cp /tmp/mnytc-android/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+            fi
+            if [ -f /tmp/mnytc-android/MainActivity.kt ]; then
               mkdir -p android/app/src/main/kotlin/eu/mnytc/app
-              cp /tmp/MainActivity.kt android/app/src/main/kotlin/eu/mnytc/app/MainActivity.kt
+              cp /tmp/mnytc-android/MainActivity.kt android/app/src/main/kotlin/eu/mnytc/app/MainActivity.kt
             fi
           fi
+          chmod +x android/gradlew
 
       - name: Patch Android plugin for modern AGP
         shell: bash
         run: |
           plugin_gradle="$(find "$HOME/.pub-cache" -path '*/flutter_inappwebview_android-*/android/build.gradle' -print -quit)"
           if [ -z "$plugin_gradle" ]; then
-            echo "flutter_inappwebview Android Gradle file was not found."
+            echo "flutter_inappwebview Android build.gradle was not found."
             exit 1
           fi
-          echo "Patching: $plugin_gradle"
-          sed -i "s/proguard-android.txt/proguard-android-optimize.txt/g" "$plugin_gradle"
-          if grep -q "proguard-android.txt" "$plugin_gradle"; then
-            echo "Legacy ProGuard configuration is still present."
+          echo "Patching $plugin_gradle"
+          sed -i 's/proguard-android\.txt/proguard-android-optimize.txt/g' "$plugin_gradle"
+          if grep -q 'proguard-android\.txt' "$plugin_gradle"; then
+            echo "Legacy ProGuard configuration remains."
             exit 1
           fi
-          grep -n "getDefaultProguardFile" "$plugin_gradle" || true
+          grep -n 'getDefaultProguardFile' "$plugin_gradle" || true
 
       - name: Generate Android icons only
         shell: bash
@@ -160,7 +164,7 @@ jobs:
             android: true
             ios: false
             image_path: assets/icons/Monytccc.png
-            adaptive_icon_background: "#000000"
+            adaptive_icon_background: '#000000'
             adaptive_icon_foreground: assets/icons/Monytccc.png
             min_sdk_android: 21
           YAML
@@ -181,7 +185,7 @@ jobs:
           mkdir -p dist/android
           cp build/app/outputs/flutter-apk/app-release.apk dist/android/MNYTC-${{ github.run_number }}.apk
           cp build/app/outputs/bundle/release/app-release.aab dist/android/MNYTC-${{ github.run_number }}.aab
-          sha256sum dist/android/* > dist/android/SHA256SUMS.txt
+          sha256sum dist/android/*.apk dist/android/*.aab > dist/android/SHA256SUMS.txt
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
@@ -195,7 +199,7 @@ jobs:
     name: Build Windows application
     needs: validate
     runs-on: windows-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -234,51 +238,77 @@ jobs:
               generate: true
               image_path: assets/icons/Monytccc.png
               icon_size: 256
-          "@ | Set-Content launcher_icons_windows.yaml
+          "@ | Set-Content -Path launcher_icons_windows.yaml -Encoding utf8
           dart run flutter_launcher_icons -f launcher_icons_windows.yaml
 
-      - name: Patch Windows plugin for MSVC 14.51
+      - name: Patch Windows build for MSVC 14.51
         shell: pwsh
         run: |
-          $pluginCmake = Get-ChildItem `
-            -Path "windows/flutter/ephemeral/.plugin_symlinks/flutter_inappwebview_windows/windows" `
-            -Filter "CMakeLists.txt" `
-            -Recurse `
-            -ErrorAction SilentlyContinue |
-          Select-Object -First 1
+          $ErrorActionPreference = "Stop"
+          $definition = "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
+          $compileLine = "add_compile_definitions($definition)"
+          $rootCmake = "windows/CMakeLists.txt"
 
-          if ($null -eq $pluginCmake) {
-            throw "flutter_inappwebview Windows CMakeLists.txt was not found."
+          if (-not (Test-Path $rootCmake)) {
+            throw "Windows CMakeLists.txt was not found: $rootCmake"
           }
 
-          $content = Get-Content $pluginCmake.FullName -Raw
-          $definition = "add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)"
-
-          if (-not $content.Contains($definition)) {
-            Set-Content `
-              -Path $pluginCmake.FullName `
-              -Value "$definition`r`n$content" `
-              -Encoding utf8
+          $rootContent = Get-Content -Path $rootCmake -Raw
+          if (-not $rootContent.Contains($compileLine)) {
+            Set-Content -Path $rootCmake -Value "$compileLine`r`n`r`n$rootContent" -Encoding utf8
           }
 
-          Write-Host "Patched: $($pluginCmake.FullName)"
-          Select-String `
-            -Path $pluginCmake.FullName `
-            -Pattern "SILENCE_EXPERIMENTAL_COROUTINE"
+          Write-Host "Patched root CMake: $rootCmake"
+          Select-String -Path $rootCmake -Pattern $definition
+
+          $candidateRoots = @(
+            "windows/flutter/ephemeral/.plugin_symlinks",
+            "build/windows/x64/plugins",
+            "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev"
+          )
+
+          foreach ($candidateRoot in $candidateRoots) {
+            if (-not (Test-Path $candidateRoot)) {
+              Write-Host "Skipped unavailable path: $candidateRoot"
+              continue
+            }
+
+            $pluginFiles = Get-ChildItem -Path $candidateRoot -Filter "CMakeLists.txt" -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match "flutter_inappwebview_windows" }
+
+            foreach ($pluginFile in $pluginFiles) {
+              $pluginContent = Get-Content -Path $pluginFile.FullName -Raw
+              if (-not $pluginContent.Contains($compileLine)) {
+                Set-Content -Path $pluginFile.FullName -Value "$compileLine`r`n`r`n$pluginContent" -Encoding utf8
+              }
+              Write-Host "Patched plugin CMake: $($pluginFile.FullName)"
+            }
+          }
+
+          Write-Host "MSVC compatibility patch completed."
 
       - name: Build Windows application
-        run: flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+        shell: pwsh
+        run: |
+          flutter build windows `
+            --release `
+            --build-name=1.0.${{ github.run_number }} `
+            --build-number=${{ github.run_number }}
 
       - name: Package Windows application
         shell: pwsh
         run: |
           $releaseDirectory = "build/windows/x64/runner/Release"
           if (-not (Test-Path $releaseDirectory)) {
-            throw "Windows release directory not found: $releaseDirectory"
+            $releaseDirectory = "build/windows/runner/Release"
+          }
+          if (-not (Test-Path $releaseDirectory)) {
+            throw "Windows release directory was not found."
           }
           New-Item -ItemType Directory -Force -Path "dist/windows" | Out-Null
-          Compress-Archive -Path "$releaseDirectory/*" -DestinationPath "dist/windows/MNYTC-Windows-${{ github.run_number }}.zip" -Force
-          $hash = Get-FileHash "dist/windows/MNYTC-Windows-${{ github.run_number }}.zip" -Algorithm SHA256
+          $archive = "dist/windows/MNYTC-Windows-${{ github.run_number }}.zip"
+          Compress-Archive -Path "$releaseDirectory/*" -DestinationPath $archive -Force
+          $hash = Get-FileHash -Path $archive -Algorithm SHA256
           "$($hash.Hash)  MNYTC-Windows-${{ github.run_number }}.zip" | Set-Content "dist/windows/SHA256SUMS.txt"
 
       - name: Upload Windows artifacts
@@ -293,7 +323,7 @@ jobs:
     name: Build macOS and unsigned iOS
     needs: validate
     runs-on: macos-latest
-    timeout-minutes: 70
+    timeout-minutes: 75
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -381,7 +411,7 @@ jobs:
         with:
           path: release-assets
 
-      - name: Publish version-tag release
+      - name: Publish tagged release
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
@@ -390,7 +420,7 @@ jobs:
           generate_release_notes: true
           files: release-assets/**/*
 
-      - name: Publish manually requested release
+      - name: Publish manual release
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release == true && !startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
