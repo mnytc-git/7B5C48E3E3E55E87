@@ -136,6 +136,22 @@ jobs:
             fi
           fi
 
+      - name: Patch Android plugin for modern AGP
+        shell: bash
+        run: |
+          plugin_gradle="$(find "$HOME/.pub-cache" -path '*/flutter_inappwebview_android-*/android/build.gradle' -print -quit)"
+          if [ -z "$plugin_gradle" ]; then
+            echo "flutter_inappwebview Android Gradle file was not found."
+            exit 1
+          fi
+          echo "Patching: $plugin_gradle"
+          sed -i "s/proguard-android.txt/proguard-android-optimize.txt/g" "$plugin_gradle"
+          if grep -q "proguard-android.txt" "$plugin_gradle"; then
+            echo "Legacy ProGuard configuration is still present."
+            exit 1
+          fi
+          grep -n "getDefaultProguardFile" "$plugin_gradle" || true
+
       - name: Generate Android icons only
         shell: bash
         run: |
@@ -220,6 +236,35 @@ jobs:
               icon_size: 256
           "@ | Set-Content launcher_icons_windows.yaml
           dart run flutter_launcher_icons -f launcher_icons_windows.yaml
+
+      - name: Patch Windows plugin for MSVC 14.51
+        shell: pwsh
+        run: |
+          $pluginCmake = Get-ChildItem `
+            -Path "windows/flutter/ephemeral/.plugin_symlinks/flutter_inappwebview_windows/windows" `
+            -Filter "CMakeLists.txt" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+          Select-Object -First 1
+
+          if ($null -eq $pluginCmake) {
+            throw "flutter_inappwebview Windows CMakeLists.txt was not found."
+          }
+
+          $content = Get-Content $pluginCmake.FullName -Raw
+          $definition = "add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)"
+
+          if (-not $content.Contains($definition)) {
+            Set-Content `
+              -Path $pluginCmake.FullName `
+              -Value "$definition`r`n$content" `
+              -Encoding utf8
+          }
+
+          Write-Host "Patched: $($pluginCmake.FullName)"
+          Select-String `
+            -Path $pluginCmake.FullName `
+            -Pattern "SILENCE_EXPERIMENTAL_COROUTINE"
 
       - name: Build Windows application
         run: flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
